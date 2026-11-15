@@ -28,8 +28,7 @@ Then run `npm run dev` for development or `npm start` for production.
 npm install white-js
 npx white install example:site
 cd site
-npm install
 npm run dev
 ```
 
-Examples are installed into a new directory named after the example. Existing directories are never overwritten.
+The installer asks for a destination folder; pressing Enter uses `site`. It downloads the template and installs its dependencies. Existing directories are never overwritten.
