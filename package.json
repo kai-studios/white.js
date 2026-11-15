@@ -8,7 +8,7 @@
     ".": "./src/index.js"
   },
   "bin": {
-    "white": "./src/cli.js"
+    "white": "src/cli.js"
   },
   "files": [
     "src"
