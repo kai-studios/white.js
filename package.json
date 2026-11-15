@@ -1,0 +1,28 @@
+{
+  "name": "white-js",
+  "version": "0.1.0",
+  "description": "A thin, fast framework on top of Express",
+  "license": "ISC",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "white": "./src/cli.js"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=20.12"
+  },
+  "dependencies": {
+    "compression": "^1.8.0",
+    "eta": "^3.5.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.7.4",
+    "helmet": "^8.0.0",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0"
+  }
+}
