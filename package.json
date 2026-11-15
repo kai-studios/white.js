@@ -1,8 +1,21 @@
 {
   "name": "white-js",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A thin, fast framework on top of Express",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kai-studios/white.js.git"
+  },
+  "keywords": [
+    "framework",
+    "express",
+    "web"
+  ],
+  "homepage": "https://github.com/kai-studios/white.js#readme",
+  "bugs": {
+    "url": "https://github.com/kai-studios/white.js/issues"
+  },
   "type": "module",
   "exports": {
     ".": "./src/index.js"

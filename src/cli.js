@@ -11,8 +11,11 @@ const mode = args[0];
 if (cmd === 'plugin') {
   const { pluginCommand } = await import('./plugin-cli.js');
   await pluginCommand(args);
+} else if (cmd === 'install') {
+  const { installExample } = await import('./install-example.js');
+  installExample(args);
 } else if (cmd !== 'run') {
-  console.log('Usage:\n  white run [dev]\n  white plugin add <name...>\n  white plugin remove <name...>');
+  console.log('Usage:\n  white run [dev]\n  white install example:<name>\n  white plugin add <name...>\n  white plugin remove <name...>');
   process.exit(cmd ? 1 : 0);
 } else if (mode === 'dev' && !process.env.WHITE_CHILD) {
   // dev: restart on file changes
