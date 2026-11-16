@@ -12,6 +12,8 @@ import { json, url, createAsset, createHelpers } from '../http/helpers.js';
 import { createCache } from '../utils/cache.js';
 import { liveReload } from '../dev/livereload.js';
 import { printBanner } from '../ui/banner.js';
+import { createMesh } from '../mesh/index.js';
+import { requestContext } from '../mesh/context.js';
 
 export async function createApp(config, root = process.cwd()) {
   const dev = process.env.NODE_ENV !== 'production';
@@ -22,6 +24,9 @@ export async function createApp(config, root = process.cwd()) {
   const closers = [];
   const ctx = { config, root, dev, abs, log, routes: [], cache: createCache(), onClose: (fn) => closers.push(fn) };
 
+  // Service-to-service infrastructure (signed calls, peers, events); only when `mesh` is configured
+  ctx.mesh = createMesh(config, ctx) ?? undefined;
+
   const viewsDir = abs(config.dirs.views);
   const publicDir = abs(config.dirs.public);
   const hasErrorView = fs.existsSync(path.join(viewsDir, 'error.eta'));
@@ -29,6 +34,7 @@ export async function createApp(config, root = process.cwd()) {
   const app = express();
   app.disable('x-powered-by');
   app.locals.dev = dev;
+  app.locals.mesh = ctx.mesh;
   // Template helpers: it.w.json(data), it.w.url(value), it.w.asset('/css/style.css'),
   // it.w.date(), number(), truncate(), classes(), active(), slug()
   app.locals.w = { json, url, asset: createAsset(publicDir, dev), ...createHelpers(config.locale) };
@@ -61,16 +67,19 @@ export async function createApp(config, root = process.cwd()) {
   const quiet = new Set([config.health?.path, config.health?.readyPath]);
   app.use((req, res, next) => {
     const started = process.hrtime.bigint();
+    const urlPath = req.path; // read now: inside a mounted router req.path is relative to the mount
     res.on('finish', () => {
       const ms = Math.round(Number(process.hrtime.bigint() - started) / 1e6);
-      req.log[quiet.has(req.path) ? 'debug' : 'info']({ status: res.statusCode, ms }, `${req.method} ${req.path} ${res.statusCode} ${ms}ms`);
+      req.log[quiet.has(urlPath) ? 'debug' : 'info']({ status: res.statusCode, ms }, `${req.method} ${urlPath} ${res.statusCode} ${ms}ms`);
     });
     next();
   });
 
   // Health checks (before rate limits so probes are never throttled)
   if (config.health) {
-    const { path: healthPath, readyPath, checks = {} } = config.health;
+    const { path: healthPath, readyPath } = config.health;
+    // peers marked `required` in the mesh config must answer for /ready to pass
+    const checks = { ...config.health.checks, ...ctx.mesh?.readinessChecks() };
     app.get(healthPath, (req, res) => res.json({ ok: true }));
     app.get(readyPath, async (req, res) => {
       const failed = [];
@@ -87,9 +96,15 @@ export async function createApp(config, root = process.cwd()) {
     });
   }
 
-  mount(rateLimiters(config));
+  // Calls between services are authenticated by signature and have their own failure limit
+  mount(rateLimiters(config, ctx.mesh && ((req) => ctx.mesh.isInternal(req))));
   mount(originCheck(config));
   mount(bodyParsers(config));
+
+  // From here on outgoing service calls carry this request's id. Set after the body parsers:
+  // they read the body in a stream callback that would lose the context.
+  app.use((req, res, next) => requestContext.run({ id: req.id }, next));
+  ctx.mesh?.mount(app);
 
   // Templates
   app.set('views', viewsDir);

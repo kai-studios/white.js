@@ -34,6 +34,7 @@ export const defaults = {
     rateLimit: { windowMs: 60_000, limit: 300, api: { limit: 60 } }, // false disables
     origin: { allowed: [] }, // CSRF origin check; false disables
   },
+  mesh: false, // service-to-service infrastructure, see the README ("Services"); an object enables it
   plugins: [],
 };
 

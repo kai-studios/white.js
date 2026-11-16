@@ -59,7 +59,8 @@ export function originCheck({ security }) {
 }
 
 // Soft limit for the whole site and a stricter one for /api
-export function rateLimiters({ security }) {
+// `skip(req)` exempts a request (signed service calls: they are authenticated instead)
+export function rateLimiters({ security }, skip) {
   const rl = security.rateLimit;
   if (!rl) return [];
   const make = (limit) =>
@@ -68,6 +69,7 @@ export function rateLimiters({ security }) {
       limit,
       standardHeaders: 'draft-7',
       legacyHeaders: false,
+      ...(skip && { skip }),
       handler: (req, res, next) => next(new HttpError(429, 'Too many requests')),
     });
   const list = [make(rl.limit)];
@@ -77,5 +79,9 @@ export function rateLimiters({ security }) {
 
 export function bodyParsers({ security }) {
   const limit = security.bodyLimit;
-  return [express.json({ limit }), express.urlencoded({ extended: false, limit })];
+  // Signed service requests are verified against the exact bytes of the body
+  const keep = (req, res, buf) => {
+    if (req.headers['x-white-signature']) req.rawBody = buf;
+  };
+  return [express.json({ limit, verify: keep }), express.urlencoded({ extended: false, limit, verify: keep })];
 }

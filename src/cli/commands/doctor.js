@@ -79,6 +79,19 @@ export async function runChecks(root = process.cwd()) {
     results.push(fail('routes or plugins fail to load', error.message));
   }
 
+  // services
+  if (config.mesh) {
+    try {
+      const { normalizeMesh, meshWarnings } = await import('../../mesh/config.js');
+      const mesh = normalizeMesh(config.mesh);
+      const count = Object.keys(mesh.peers).length;
+      results.push(ok(`mesh: service "${mesh.name}", ${count} peer${count === 1 ? '' : 's'}`));
+      for (const w of meshWarnings(mesh)) results.push(warn('mesh', w));
+    } catch (error) {
+      results.push(fail('mesh configuration', error.message));
+    }
+  }
+
   results.push((await portFree(config.port)) ? ok(`port ${config.port} is free`) : warn(`port ${config.port} is in use`, 'set PORT to use another one'));
   return results;
 }

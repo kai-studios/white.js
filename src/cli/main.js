@@ -8,6 +8,7 @@ const commands = {
   plugin: async (args) => (await import('./commands/plugin.js')).pluginCommand(args),
   routes: async () => (await import('./commands/routes.js')).routesCommand().then(() => process.exit(0)),
   make: async (args) => (await import('./commands/make.js')).makeCommand(args),
+  mesh: async (args) => (await import('./commands/mesh.js')).meshCommand(args),
   doctor: async () => (await import('./commands/doctor.js')).doctorCommand(),
 };
 
@@ -28,6 +29,8 @@ async function help(code) {
     row('white routes', 'list routes and the files they come from'),
     row('white make route <path> [--api]', 'create a route (and its view)'),
     row('white make plugin <name>', 'create and register a local plugin'),
+    row('white mesh status', 'check the services this one talks to'),
+    row('white mesh keygen', 'print a new secret for a service link'),
     row('white doctor', 'check the project for problems'),
     '',
     `  ${t.muted(sym.arrow)} ${t.muted('white install example:site my-site -y')}`,
