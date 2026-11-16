@@ -45,3 +45,58 @@ export function createAsset(publicDir, dev) {
     }
   };
 }
+
+// Helpers for templates, available as it.w.* (see createApp). `locale` comes from config.locale.
+export function createHelpers(locale = 'en') {
+  return {
+    // it.w.date(post.date)  ->  "November 16, 2026";  it.w.date(d, { dateStyle: 'short' })
+    date(value, options = { dateStyle: 'long' }) {
+      const date = value instanceof Date ? value : new Date(value);
+      return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(locale, options).format(date);
+    },
+
+    // it.w.number(1234.5)  ->  "1,234.5";  it.w.number(0.42, { style: 'percent' })
+    number(value, options) {
+      const n = Number(value);
+      return Number.isFinite(n) ? new Intl.NumberFormat(locale, options).format(n) : '';
+    },
+
+    // Cuts text at a word boundary: it.w.truncate(post.body, 140)
+    truncate(text, length = 120, tail = '\u2026') {
+      const value = String(text ?? '').trim();
+      if (value.length <= length) return value;
+      const cut = value.slice(0, length);
+      const space = cut.lastIndexOf(' ');
+      return (space > length * 0.6 ? cut.slice(0, space) : cut).replace(/[\s.,;:!?-]+$/, '') + tail;
+    },
+
+    // class="<%= it.w.classes('btn', { 'btn--big': big }, error && 'has-error') %>"
+    classes(...parts) {
+      return parts
+        .flatMap((part) =>
+          part && typeof part === 'object' ? Object.entries(part).filter(([, on]) => on).map(([name]) => name) : [part],
+        )
+        .filter((part) => typeof part === 'string' && part)
+        .join(' ');
+    },
+
+    // Is this nav link the current page?  it.w.active(it.path, '/blog')
+    // "/blog" matches /blog and /blog/post; "/" and { exact: true } match only themselves.
+    active(current, href, { exact = false } = {}) {
+      const path = String(current ?? '').split(/[?#]/)[0];
+      const target = String(href ?? '').split(/[?#]/)[0];
+      if (exact || target === '/') return path === target;
+      return path === target || path.startsWith(target.replace(/\/$/, '') + '/');
+    },
+
+    // it.w.slug('Hello, World!')  ->  "hello-world" (keeps letters of any alphabet)
+    slug(text) {
+      return String(text ?? '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, '-')
+        .replace(/^-+|-+$/g, '');
+    },
+  };
+}

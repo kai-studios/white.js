@@ -6,6 +6,9 @@ const commands = {
   run: async (args) => (await import('./commands/run.js')).run(args),
   install: async (args) => (await import('./commands/install.js')).installExample(args),
   plugin: async (args) => (await import('./commands/plugin.js')).pluginCommand(args),
+  routes: async () => (await import('./commands/routes.js')).routesCommand().then(() => process.exit(0)),
+  make: async (args) => (await import('./commands/make.js')).makeCommand(args),
+  doctor: async () => (await import('./commands/doctor.js')).doctorCommand(),
 };
 
 async function help(code) {
@@ -22,6 +25,10 @@ async function help(code) {
     row('white install example:<name>', 'create a project from an example'),
     row('white plugin add <name...>', 'install and enable plugins'),
     row('white plugin remove <name...>', 'remove plugins'),
+    row('white routes', 'list routes and the files they come from'),
+    row('white make route <path> [--api]', 'create a route (and its view)'),
+    row('white make plugin <name>', 'create and register a local plugin'),
+    row('white doctor', 'check the project for problems'),
     '',
     `  ${t.muted(sym.arrow)} ${t.muted('white install example:site my-site -y')}`,
     '',

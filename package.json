@@ -1,6 +1,6 @@
 {
   "name": "white-js",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "A thin, fast framework on top of Express",
   "license": "ISC",
   "repository": {
@@ -18,7 +18,8 @@
   },
   "type": "module",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./test": "./src/test.js"
   },
   "bin": {
     "white": "bin/white.js",
@@ -39,5 +40,8 @@
     "helmet": "^8.0.0",
     "pino": "^10.4.0",
     "pino-pretty": "^13.2.0"
+  },
+  "scripts": {
+    "test": "node --test"
   }
 }

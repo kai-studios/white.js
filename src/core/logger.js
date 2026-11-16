@@ -2,7 +2,7 @@ import pino from 'pino';
 
 export function createLogger(config, dev) {
   const level = process.env.LOG_LEVEL || config.log?.level || 'info';
-  if (!dev) return pino({ level });
+  if (!dev || level === 'silent') return pino({ level });
   return pino({
     level,
     transport: {

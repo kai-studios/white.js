@@ -51,7 +51,11 @@ export async function loadRoutes(app, ctx) {
       if (!layer.route) continue;
       const sub = layer.route.path === '/' ? '' : layer.route.path;
       for (const method of Object.keys(layer.route.methods)) {
-        ctx.routes.push({ method: method.toUpperCase(), path: (url === '/' ? '' : url) + sub || '/' });
+        ctx.routes.push({
+          method: method.toUpperCase(),
+          path: (url === '/' ? '' : url) + sub || '/',
+          file: path.relative(ctx.root, file).replace(/\\/g, '/'),
+        });
       }
     }
   }

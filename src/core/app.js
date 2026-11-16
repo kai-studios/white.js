@@ -8,14 +8,19 @@ import { createLogger } from './logger.js';
 import { etaEngine } from '../http/views.js';
 import { errorPage } from '../http/pages.js';
 import { securityHeaders, originCheck, rateLimiters, bodyParsers } from '../http/security.js';
-import { json, url, createAsset } from '../http/helpers.js';
+import { json, url, createAsset, createHelpers } from '../http/helpers.js';
+import { createCache } from '../utils/cache.js';
+import { liveReload } from '../dev/livereload.js';
 import { printBanner } from '../ui/banner.js';
 
 export async function createApp(config, root = process.cwd()) {
   const dev = process.env.NODE_ENV !== 'production';
   const abs = (p) => path.resolve(root, p);
   const log = createLogger(config, dev);
-  const ctx = { config, root, dev, abs, log, routes: [] };
+  // ctx is handed to every route and plugin: ctx.cache is a shared in-memory cache
+  // ctx.onClose(fn) registers cleanup (close a database, flush a queue) that runs on shutdown.
+  const closers = [];
+  const ctx = { config, root, dev, abs, log, routes: [], cache: createCache(), onClose: (fn) => closers.push(fn) };
 
   const viewsDir = abs(config.dirs.views);
   const publicDir = abs(config.dirs.public);
@@ -24,8 +29,9 @@ export async function createApp(config, root = process.cwd()) {
   const app = express();
   app.disable('x-powered-by');
   app.locals.dev = dev;
-  // Template helpers: it.w.json(data), it.w.url(value), it.w.asset('/css/style.css')
-  app.locals.w = { json, url, asset: createAsset(publicDir, dev) };
+  // Template helpers: it.w.json(data), it.w.url(value), it.w.asset('/css/style.css'),
+  // it.w.date(), number(), truncate(), classes(), active(), slug()
+  app.locals.w = { json, url, asset: createAsset(publicDir, dev), ...createHelpers(config.locale) };
   if (config.trustProxy !== false) app.set('trust proxy', config.trustProxy);
 
   // Per-request context: id, logger, CSP nonce, safe cookie helper
@@ -35,6 +41,7 @@ export async function createApp(config, root = process.cwd()) {
     req.log = log.child({ reqId: req.id });
     res.set('X-Request-Id', req.id);
     res.locals.nonce = crypto.randomBytes(16).toString('base64');
+    res.locals.path = req.path; // current path for templates: it.path
     res.secureCookie = (name, value, options = {}) =>
       res.cookie(name, value, { httpOnly: true, sameSite: 'lax', secure: !dev, path: '/', ...options });
     next();
@@ -42,6 +49,9 @@ export async function createApp(config, root = process.cwd()) {
 
   // Mounts a list of middleware (or [path, middleware] pairs); an empty list mounts nothing
   const mount = (list) => list.forEach((entry) => app.use(...[].concat(entry)));
+
+  // `white run dev` sets NODE_ENV=development: refresh the browser when files change
+  if (process.env.NODE_ENV === 'development' && config.dev?.reload !== false) liveReload(app, ctx);
 
   mount(securityHeaders(config, dev));
   app.use(compression());
@@ -111,15 +121,41 @@ export async function createApp(config, root = process.cwd()) {
     sendError(req, res, status, message, status < 500 ? err.details : undefined);
   });
 
+  // Stops accepting requests, runs ctx.onClose handlers, lets running requests finish, then exits.
+  // Connections still open after config.shutdownTimeout are closed forcibly (exit code 1).
+  let stopping = false;
+  const shutdown = async (server) => {
+    if (stopping) return;
+    stopping = true;
+    const timer = setTimeout(() => {
+      log.warn('Shutdown timed out, closing open connections');
+      server.closeAllConnections?.();
+      process.exit(1);
+    }, config.shutdownTimeout);
+    timer.unref();
+
+    const closed = new Promise((resolve) => server.close(resolve)); // resolves when every connection has ended
+    server.closeIdleConnections?.();
+    for (const close of closers.reverse()) {
+      try {
+        await close();
+      } catch (err) {
+        log.error({ err }, 'Error while shutting down');
+      }
+    }
+    server.closeIdleConnections?.();
+    await closed;
+    process.exit(0);
+  };
+
   const start = () =>
     new Promise((resolve) => {
       const server = app.listen(config.port, () => {
         printBanner({ port: config.port, dev, routes: ctx.routes });
         resolve(server);
       });
-      const stop = () => server.close(() => process.exit(0));
-      process.on('SIGTERM', stop);
-      process.on('SIGINT', stop);
+      process.on('SIGTERM', () => shutdown(server));
+      process.on('SIGINT', () => shutdown(server));
     });
 
   return { app, start, ctx };

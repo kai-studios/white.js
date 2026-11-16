@@ -41,6 +41,9 @@ export function originCheck({ security }) {
     (req, res, next) => {
       if (!UNSAFE_METHODS.has(req.method)) return next();
       const origin = req.get('origin');
+      // With Referrer-Policy: no-referrer (helmet's default) browsers send "Origin: null" even for
+      // a plain same-origin form post. The browser-set Sec-Fetch-Site header tells those apart.
+      if (origin === 'null') return req.get('sec-fetch-site') === 'same-origin' ? next() : reject(next);
       if (origin) {
         let host;
         try {

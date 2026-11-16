@@ -13,6 +13,9 @@ export class ConfigError extends Error {
 // Defaults: a site's white.config.js only needs to contain what it changes
 export const defaults = {
   port: null, // PORT env variable, otherwise 3000
+  locale: 'en', // used by it.w.date() and it.w.number()
+  dev: { reload: true }, // refresh the browser when views, styles or server files change
+  shutdownTimeout: 10_000, // ms to let running requests finish after SIGTERM/SIGINT
   trustProxy: false, // behind a proxy set the number of hops, e.g. 1
   dirs: {
     routes: 'server/routes',
