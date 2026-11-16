@@ -1,6 +1,6 @@
 {
   "name": "white-js",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "A thin, fast framework on top of Express",
   "license": "ISC",
   "repository": {
@@ -21,9 +21,11 @@
     ".": "./src/index.js"
   },
   "bin": {
-    "white": "src/cli.js"
+    "white": "bin/white.js",
+    "white-js": "bin/white.js"
   },
   "files": [
+    "bin",
     "src"
   ],
   "engines": {

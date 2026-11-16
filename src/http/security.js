@@ -1,7 +1,7 @@
 import helmet from 'helmet';
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { HttpError } from './errors.js';
+import { HttpError } from '../core/errors.js';
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 

@@ -1,4 +1,4 @@
-import { ValidationError } from './errors.js';
+import { ValidationError } from '../core/errors.js';
 
 // Validates params, query and body with any schema that has .safeParse()
 // (zod and compatible libraries). Parsed values are available as req.valid.
