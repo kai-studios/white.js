@@ -1,2 +1,4 @@
 node_modules/
 *.tgz
+# state of `white migrate`: lock, journals, backups (white.migrations.json and white.protocols.json are committed)
+.white/

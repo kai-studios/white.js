@@ -1,0 +1,13 @@
+{
+  "name": "white-auth-example",
+  "version": "2.4.0",
+  "description": "A library that speaks two generations of the example \"meta\" protocol",
+  "type": "module",
+  "main": "index.js",
+  "white": {
+    "framework": ">=0.4.0",
+    "protocols": {
+      "meta": { "required": "2.0", "supported": ["2.0", "3.0"] }
+    }
+  }
+}

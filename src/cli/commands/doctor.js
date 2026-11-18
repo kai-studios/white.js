@@ -1,110 +1,68 @@
-import fs from 'node:fs';
-import net from 'node:net';
-import path from 'node:path';
 import * as ui from '../../ui/index.js';
+import { diagnose } from '../../doctor/index.js';
 
-const MIN_NODE = [20, 12];
+export { runChecks } from '../../doctor/index.js';
 
-function portFree(port) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once('error', () => resolve(false));
-    server.listen(port, () => server.close(() => resolve(true)));
-  });
+const ICON = {
+  ok: () => ui.t.success(ui.sym.ok),
+  info: () => ui.t.muted('i'),
+  warning: () => ui.t.warn(ui.sym.fail),
+  error: () => ui.t.error(ui.sym.err),
+  critical: () => ui.t.error('!!'),
+};
+const STATUS_COLOR = { OK: ui.t.success, WARNING: ui.t.warn, ERROR: ui.t.error, CRITICAL: ui.t.error };
+const LABEL = (s) => s.toUpperCase();
+const rule = (title) => `${ui.t.bold(title)}\n  ${ui.t.muted((ui.caps.unicode ? '─' : '-').repeat(36))}`;
+
+// The protocol part, in the layout of the specification
+export function renderProtocols(report, registry) {
+  const lines = [];
+  const protocols = [...new Set(report.users.map((u) => u.protocol))].sort();
+  for (const name of protocols) {
+    const users = report.users.filter((u) => u.protocol === name);
+    lines.push('', `  ${ui.t.bold(name.toUpperCase())}`);
+    for (const m of registry.versions(name)) lines.push(`    ${`${name}@${m.version}`.padEnd(14)}${LABEL(m.status)}`);
+    const legacy = users.filter((u) => u.kind === 'library' && registry.current(name) && registry.current(name).version !== u.version);
+    lines.push('', `  Detected:`);
+    if (legacy.length) lines.push(`    ${legacy.length} librar${legacy.length === 1 ? 'y uses a' : 'ies use a'} legacy protocol.`, '');
+    const width = Math.max(...users.map((u) => u.subject.length)) + 2;
+    for (const u of users) lines.push(`    ${u.subject.padEnd(width)}${name}@${u.version}${u.explicit ? ui.t.muted('  (selected in white.protocols.json)') : ''}`);
+  }
+  const recs = report.recommendations;
+  if (recs.length) {
+    lines.push('', '  Recommendations:');
+    const width = Math.max(...recs.map((r) => r.subject.length)) + 2;
+    for (const r of recs) {
+      lines.push(`    ${r.subject.padEnd(width)}${ui.caps.unicode ? '→' : '->'} ${r.protocol}@${r.to}${r.action === 'update-library' ? ui.t.muted('  (needs a release of the library that supports it)') : ''}`);
+    }
+    lines.push('', '  Migration available:', `    ${report.migrations.automatic} automatic`, `    ${report.migrations.manual} manual`);
+  }
+  return lines;
 }
 
-const ok = (title, detail) => ({ level: 'ok', title, detail });
-const warn = (title, detail) => ({ level: 'warn', title, detail });
-const fail = (title, detail) => ({ level: 'fail', title, detail });
+export async function doctorCommand(args = [], root = process.cwd()) {
+  const json = args.includes('--json');
+  const result = await diagnose(root, { deep: args.includes('--deep') });
+  const strict = args.includes('--strict') && result.summary.warning > 0 && result.exitCode === 0;
+  const exitCode = strict ? 1 : result.exitCode;
 
-// Looks at a project and returns what is fine, what is suspicious and what is broken.
-export async function runChecks(root = process.cwd()) {
-  const results = [];
-
-  const [major, minor] = process.versions.node.split('.').map(Number);
-  results.push(
-    major > MIN_NODE[0] || (major === MIN_NODE[0] && minor >= MIN_NODE[1])
-      ? ok(`Node.js ${process.versions.node}`)
-      : fail(`Node.js ${process.versions.node}`, `White.js needs ${MIN_NODE.join('.')} or newer`),
-  );
-
-  // package.json
-  const pkgFile = path.join(root, 'package.json');
-  if (!fs.existsSync(pkgFile)) {
-    results.push(fail('package.json', 'not found. Run this command from the project root'));
-    return results;
-  }
-  const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
-  const installed = { ...pkg.dependencies, ...pkg.devDependencies };
-  results.push('white-js' in installed ? ok('white-js is a dependency') : warn('white-js is not in package.json', 'npm install white-js'));
-  const scripts = Object.values(pkg.scripts ?? {}).join(' ');
-  results.push(/white run/.test(scripts) ? ok('start scripts use "white run"') : warn('no script runs "white run"', 'add "start": "white run" and "dev": "white run dev"'));
-  if (pkg.type !== 'module') results.push(fail('package.json needs "type": "module"', 'routes and plugins are ES modules'));
-
-  // config
-  const { loadConfig, ConfigError } = await import('../../index.js');
-  let config;
-  try {
-    config = await loadConfig(root);
-    results.push(ok('white.config.js loads'));
-  } catch (error) {
-    results.push(fail(error instanceof ConfigError ? 'environment' : 'white.config.js', error.message));
-    return results;
+  if (json) {
+    const { registry, ...rest } = result;
+    console.log(JSON.stringify({ ...rest, exitCode, registry: registry?.toJSON() }, null, 2));
+    process.exit(exitCode);
   }
 
-  // folders
-  for (const [key, label] of [['routes', 'routes'], ['views', 'views'], ['public', 'static files']]) {
-    const dir = path.join(root, config.dirs[key]);
-    results.push(fs.existsSync(dir) ? ok(`${label}: ${config.dirs[key]}`) : (key === 'routes' ? fail : warn)(`${label}: ${config.dirs[key]} does not exist`));
-  }
-  if (fs.existsSync(path.join(root, config.dirs.views)) && !fs.existsSync(path.join(root, config.dirs.views, 'error.eta'))) {
-    results.push(warn('no error.eta view', 'a built-in error page is used'));
-  }
-
-  // routes load and do not clash
-  try {
-    process.env.LOG_LEVEL ??= 'silent';
-    const { createApp } = await import('../../index.js');
-    const { ctx } = await createApp(config, root);
-    const seen = new Map();
-    const duplicates = [];
-    for (const r of ctx.routes) {
-      const key = `${r.method} ${r.path}`;
-      if (seen.has(key)) duplicates.push(`${key} in ${seen.get(key)} and ${r.file}`);
-      else seen.set(key, r.file);
+  console.log(`\n  ${ui.t.bold('White.js Doctor')}\n`);
+  for (const section of result.sections) {
+    console.log(`  ${rule(section.title)}`);
+    for (const i of section.items) {
+      console.log(`  ${ICON[i.severity]()}  ${i.title}${i.detail ? ui.t.muted(`  ${i.detail}`) : ''}`);
     }
-    results.push(ok(`${ctx.routes.length} route${ctx.routes.length === 1 ? '' : 's'} loaded`));
-    if (duplicates.length) results.push(warn('duplicate routes', duplicates.join('; ')));
-  } catch (error) {
-    results.push(fail('routes or plugins fail to load', error.message));
+    if (section.title === 'Protocol Compatibility' && result.protocols?.users.length) console.log(renderProtocols(result.protocols, result.registry).join('\n'));
+    console.log('');
   }
-
-  // services
-  if (config.mesh) {
-    try {
-      const { normalizeMesh, meshWarnings } = await import('../../mesh/config.js');
-      const mesh = normalizeMesh(config.mesh);
-      const count = Object.keys(mesh.peers).length;
-      results.push(ok(`mesh: service "${mesh.name}", ${count} peer${count === 1 ? '' : 's'}`));
-      for (const w of meshWarnings(mesh)) results.push(warn('mesh', w));
-    } catch (error) {
-      results.push(fail('mesh configuration', error.message));
-    }
-  }
-
-  results.push((await portFree(config.port)) ? ok(`port ${config.port} is free`) : warn(`port ${config.port} is in use`, 'set PORT to use another one'));
-  return results;
-}
-
-export async function doctorCommand(root = process.cwd()) {
-  const results = await runChecks(root);
-  const icon = { ok: ui.t.success(ui.sym.ok), warn: ui.t.warn(ui.sym.fail), fail: ui.t.error(ui.sym.err) };
-  console.log('');
-  for (const r of results) {
-    console.log(`  ${icon[r.level]}  ${r.title}${r.detail ? ui.t.muted(`  ${r.detail}`) : ''}`);
-  }
-  const failed = results.filter((r) => r.level === 'fail').length;
-  const warned = results.filter((r) => r.level === 'warn').length;
-  console.log(`\n  ${failed ? ui.t.error(`${failed} problem${failed === 1 ? '' : 's'}`) : ui.t.success('All good')}${warned ? ui.t.muted(`, ${warned} warning${warned === 1 ? '' : 's'}`) : ''}\n`);
-  process.exit(failed ? 1 : 0);
+  const { summary } = result;
+  const parts = [summary.critical && `${summary.critical} critical`, summary.error && `${summary.error} error${summary.error === 1 ? '' : 's'}`, summary.warning && `${summary.warning} warning${summary.warning === 1 ? '' : 's'}`].filter(Boolean);
+  console.log(`  Status: ${(STATUS_COLOR[result.status] ?? ((s) => s))(strict ? 'WARNING (strict)' : result.status)}${parts.length ? ui.t.muted(`  ${parts.join(', ')}`) : ''}\n`);
+  process.exit(exitCode);
 }

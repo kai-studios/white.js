@@ -14,7 +14,7 @@ import { resolveConfig } from './core/config.js';
 
 export async function createTestClient(config = {}, { root = process.cwd() } = {}) {
   const resolved = resolveConfig({ ...config, log: { level: 'silent', ...config.log } });
-  const { app, ctx } = await createApp(resolved, root);
+  const { app, ctx, stop } = await createApp(resolved, root);
 
   const server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
@@ -59,6 +59,7 @@ export async function createTestClient(config = {}, { root = process.cwd() } = {
   return {
     app,
     ctx,
+    stop,
     url: base,
     cookies: jar,
     request,
@@ -67,7 +68,11 @@ export async function createTestClient(config = {}, { root = process.cwd() } = {
     put: (path, options) => request('PUT', path, options),
     patch: (path, options) => request('PATCH', path, options),
     delete: (path, options) => request('DELETE', path, options),
-    close: () => new Promise((resolve) => (server.closeAllConnections?.(), server.close(resolve))),
+    // closes the test server, then runs the onClose handlers of the app
+    close: async () => {
+      await new Promise((resolve) => (server.closeAllConnections?.(), server.close(resolve)));
+      await stop();
+    },
   };
 }
 

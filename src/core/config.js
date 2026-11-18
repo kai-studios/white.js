@@ -2,26 +2,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// Thrown for problems the user must fix (printed without a stack trace)
-export class ConfigError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'ConfigError';
-  }
-}
+import { ConfigError } from './white-error.js';
+import { normalizeTrustProxy } from './proxy.js';
+import { normalizeRequestId } from './request-id.js';
+
+export { ConfigError };
 
 // Defaults: a site's white.config.js only needs to contain what it changes
 export const defaults = {
   port: null, // PORT env variable, otherwise 3000
+  host: null, // address to listen on; null: all interfaces
   locale: 'en', // used by it.w.date() and it.w.number()
   dev: { reload: true }, // refresh the browser when views, styles or server files change
-  shutdownTimeout: 10_000, // ms to let running requests finish after SIGTERM/SIGINT
-  trustProxy: false, // behind a proxy set the number of hops, e.g. 1
+  shutdownTimeout: 10_000, // ms for the WHOLE shutdown: running requests and onClose handlers
+  trustProxy: false, // behind a proxy: a hop count (1), subnets ('10.0.0.0/8') or 'loopback'; `true` is refused
+  requestId: { header: 'x-request-id', accept: 'trusted' }, // who may choose request ids, see the README
+  protocols: { enforce: 'error', allow: [], block: [], definitions: [] }, // protocol compatibility, see docs/protocols.md
   dirs: {
     routes: 'server/routes',
     views: 'app/views',
     public: 'app/public',
     meta: 'server/meta',
+    migrations: 'server/migrations', // your own protocol migrations, see docs/migrations.md
   },
   view: { engine: 'eta' },
   log: { level: null }, // LOG_LEVEL env variable, otherwise "info"
@@ -48,9 +50,32 @@ function merge(base, over) {
   return out;
 }
 
+const ENFORCE = ['error', 'critical', 'off'];
+
+// Rejects settings that would silently do the wrong thing
+function validate(config) {
+  const problems = [];
+  if (!Number.isFinite(config.shutdownTimeout) || config.shutdownTimeout <= 0) problems.push('shutdownTimeout must be a positive number of milliseconds');
+  if (!ENFORCE.includes(config.protocols?.enforce)) problems.push(`protocols.enforce must be one of: ${ENFORCE.join(', ')}`);
+  for (const key of ['allow', 'block', 'definitions']) {
+    if (!Array.isArray(config.protocols?.[key])) problems.push(`protocols.${key} must be an array`);
+  }
+  for (const entry of config.protocols?.allow ?? []) {
+    if (typeof entry?.protocol !== 'string' || typeof entry?.reason !== 'string' || !entry.reason.trim()) {
+      problems.push('every protocols.allow entry needs "protocol" (e.g. "meta@2.0") and a written "reason"');
+    } else if (entry.until !== undefined && Number.isNaN(Date.parse(entry.until))) {
+      problems.push(`protocols.allow "${entry.protocol}": "until" must be a date such as 2027-01-31`);
+    }
+  }
+  if (problems.length) throw new ConfigError(`Invalid configuration:\n  - ${problems.join('\n  - ')}`);
+}
+
 export function resolveConfig(user = {}) {
   const config = merge(defaults, user);
   config.port ??= Number(process.env.PORT) || 3000;
+  normalizeTrustProxy(config.trustProxy); // throws ConfigError when unsafe or malformed
+  normalizeRequestId(config.requestId);
+  validate(config);
   return config;
 }
 

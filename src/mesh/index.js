@@ -205,6 +205,7 @@ export function createMesh(config, ctx) {
         events: handlers.map((h) => h.pattern),
         peers: [...peerConfigs.keys()],
         meta: opts.meta,
+        protocols: ctx.protocols && { fingerprint: ctx.protocols.fingerprint, used: ctx.protocols.used },
       });
     });
     app.post('/_white/events', auth(), receive);

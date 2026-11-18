@@ -1,0 +1,33 @@
+{
+  "name": "white-meta-example",
+  "version": "1.0.0",
+  "description": "Defines and implements the example \"meta\" protocol (generations 2.0 and 3.0) and ships the migration between them",
+  "type": "module",
+  "white": {
+    "provides": { "meta": ["2.0", "3.0"] },
+    "defines": [
+      {
+        "name": "meta",
+        "version": "2.0",
+        "status": "deprecated",
+        "compatibility": { "white": ">=0.4.0" },
+        "deprecation": { "since": "2026-11", "message": "use meta@3.0" }
+      },
+      {
+        "name": "meta",
+        "version": "3.0",
+        "status": "current",
+        "compatibility": { "white": ">=0.4.0" },
+        "replaces": "meta@2.0",
+        "migration": {
+          "from": "meta@2.0",
+          "to": "meta@3.0",
+          "strategy": "automatic",
+          "id": "meta-2.0-to-3.0",
+          "integrity": "sha256-ZLw3SGR17D90NEh8iCRhkdCY42uv9jgbekjZC7LXs3Q="
+        }
+      }
+    ],
+    "migrations": "./migrations.js"
+  }
+}

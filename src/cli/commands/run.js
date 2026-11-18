@@ -10,14 +10,15 @@ export async function run([mode]) {
   if (mode === 'dev' && !process.env.WHITE_CHILD) return dev();
   if (mode !== 'dev') process.env.NODE_ENV ??= 'production';
 
-  const { loadConfig, createApp, ConfigError } = await import('../../index.js');
+  const { loadConfig, createApp, WhiteError } = await import('../../index.js');
   try {
     const config = await loadConfig();
     const { start } = await createApp(config);
     await start();
   } catch (err) {
-    if (err instanceof ConfigError) {
-      console.error(`White.js: ${err.message}`);
+    // problems the developer must fix are printed without a stack trace
+    if (err instanceof WhiteError) {
+      console.error(`White.js: ${err.message}${err.hint ? `\n  ${err.hint}` : ''}`);
       process.exit(1);
     }
     throw err;

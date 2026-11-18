@@ -9,7 +9,9 @@ const commands = {
   routes: async () => (await import('./commands/routes.js')).routesCommand().then(() => process.exit(0)),
   make: async (args) => (await import('./commands/make.js')).makeCommand(args),
   mesh: async (args) => (await import('./commands/mesh.js')).meshCommand(args),
-  doctor: async () => (await import('./commands/doctor.js')).doctorCommand(),
+  doctor: async (args) => (await import('./commands/doctor.js')).doctorCommand(args),
+  migrate: async (args) => (await import('./commands/migrate.js')).migrateCommand(args),
+  protocol: async (args) => (await import('./commands/protocol.js')).protocolCommand(args),
 };
 
 async function help(code) {
@@ -31,7 +33,9 @@ async function help(code) {
     row('white make plugin <name>', 'create and register a local plugin'),
     row('white mesh status', 'check the services this one talks to'),
     row('white mesh keygen', 'print a new secret for a service link'),
-    row('white doctor', 'check the project for problems'),
+    row('white doctor [--deep] [--json]', 'check the project (read-only)'),
+    row('white migrate [name@version]', 'move to another protocol generation'),
+    row('white protocol list | info <name>', 'show the protocol registry'),
     '',
     `  ${t.muted(sym.arrow)} ${t.muted('white install example:site my-site -y')}`,
     '',
@@ -53,6 +57,13 @@ export async function main([command, ...args]) {
       const { t, sym } = await import('../ui/index.js');
       console.log(`  ${t.muted(sym.outro)}  ${t.muted('Cancelled')}\n`);
       process.exit(130);
+    }
+    // problems the developer can fix (usage, config, protocols...) are printed without a stack trace
+    const { WhiteError } = await import('../core/white-error.js');
+    if (error instanceof WhiteError) {
+      const { t, sym } = await import('../ui/index.js');
+      console.error(`\n  ${t.error(sym.err)}  ${error.message}${error.hint ? `\n     ${t.muted(error.hint)}` : ''}\n`);
+      process.exit(1);
     }
     throw error;
   }

@@ -56,7 +56,9 @@ The package exposes two binaries, `white` and `white-js`, both pointing at `bin/
 | `white make plugin <name>` | create a local plugin and register it |
 | `white mesh status` | check that every peer answers and accepts our signature |
 | `white mesh keygen` | print a new random secret for a service link |
-| `white doctor` | check the project for problems |
+| `white doctor [--deep] [--json] [--strict]` | diagnose the project without changing it |
+| `white migrate [name@version]` | move to another protocol generation ([docs](docs/migrations.md)) |
+| `white protocol list \| info <name>` | show the protocol registry ([docs](docs/protocols.md)) |
 
 ## Development
 
@@ -83,7 +85,11 @@ Existing files are never overwritten.
 
 ### `white routes` and `white doctor`
 
-`white routes` prints every method, URL and source file. `white doctor` checks the Node version, `package.json`, the config and required environment variables, the folders, that every route loads, duplicate routes and that the port is free. It exits with 1 when something is broken, so it also works in CI.
+`white routes` prints every method, URL and source file, including routes of nested routers.
+
+`white doctor` is a read-only diagnosis. It checks the Node version, `package.json`, the config, the folders, the layout of the route files (unknown groups, bad parameter names, conflicts), how every plugin resolves, the protocol generations in use ([Protocols](docs/protocols.md)) and whether the port is free. **It does not run your plugins or routes**; add `--deep` to load the whole app as `white run` would, which does run them.
+
+Findings have four severities: info, warning, error and critical (a security problem). Exit code: `0` nothing worse than warnings, `1` errors, `2` critical security problems. `--strict` makes warnings exit with 1, and `--json` prints the result for CI.
 
 ## Helpers
 
@@ -135,16 +141,21 @@ export const env = defineEnv({
 
 Types: `string` (default), `number`, `integer`, `port`, `boolean`, `url`. Every problem is reported at once, and the result is frozen.
 
-### Shutdown
+### Start-up, shutdown and cleanup
 
 ```js
 export default (app, ctx) => {
   const db = connect();
-  ctx.onClose(() => db.end());   // runs on SIGTERM / SIGINT
+  ctx.onClose(() => db.end(), { name: 'database' });   // runs on shutdown, and if start-up fails
 };
 ```
 
-On shutdown the server stops accepting requests, runs the `onClose` handlers (last registered first), lets running requests finish and exits with 0. Connections still open after `shutdownTimeout` (10 seconds by default) are closed and the exit code is 1.
+- If anything fails while the app is being built (a plugin throws, a route file is invalid, a protocol is blocked), the `onClose` handlers of everything that was already set up run **in reverse order** and the original error is thrown. A failed start leaves no open connections.
+- On `SIGTERM` or `SIGINT` the server stops accepting requests, `/ready` answers 503, running requests finish, the handlers run (last registered first, one failing does not stop the others) and the process exits with 0. A second signal during shutdown is ignored.
+- `shutdownTimeout` (10 seconds) limits the **whole** shutdown, handlers included. When it runs out the remaining connections are closed, the log names the handlers that did not finish, and the exit code is 1.
+- `start()` can be called repeatedly (you get the same server); after `stop()` it rejects. A port that is taken rejects with `PortInUseError`.
+
+Programmatic use (`createApp` returns `{ app, ctx, start, stop, state }`) and the full state machine are in [docs/lifecycle.md](docs/lifecycle.md).
 
 ## Services
 
@@ -292,16 +303,89 @@ await cluster.close();
 
 Run the library's own tests with `npm test`.
 
+## Security settings
+
+### `trustProxy`
+
+Express believes `X-Forwarded-For` and `X-Forwarded-Proto` only from proxies you trust. The default trusts nobody, so a client cannot forge its address.
+
+```js
+export default {
+  trustProxy: 1,                       // one reverse proxy in front of the app
+  // trustProxy: ['10.0.0.0/8', 'loopback'],   // or name the proxies
+};
+```
+
+`trustProxy: true` is refused at start-up, because it would trust every header from every client. Accepted: a hop count, addresses or subnets, the keywords `loopback`, `linklocal`, `uniquelocal`, `{ hops }`, `{ proxies }`, or a function.
+
+### Request ids
+
+Every request gets an id (`req.id`, the `x-request-id` response header, `reqId` in log lines), and calls to other services carry it. Who may choose the id is a setting:
+
+```js
+export default {
+  requestId: {
+    accept: 'trusted',      // 'trusted' (default) | 'never' | 'always'
+    header: 'x-request-id',
+    // pattern: /^[\w.-]{8,64}$/,
+    // generate: (req) => crypto.randomUUID(),
+  },
+};
+```
+
+With `trusted`, an incoming id is used only when the connection comes from a trusted proxy (see `trustProxy`); otherwise a UUID is generated. An id that is not 8-64 characters of `A-Z a-z 0-9 _ . -` is always replaced. Signed calls from a known service continue the caller's id (unless `accept` is `'never'`), so one id follows an action through the whole chain.
+
+## Routes and plugins
+
+The rules for route files (groups, `[param]` syntax, priority, nested routers) are in [docs/routing.md](docs/routing.md). In short: `routes/api/` and `routes/client/` are the only groups, `/profile` is always tried before `/:id`, and unknown folders, bad parameter names and two files for one URL are reported at start-up and by `white doctor`.
+
+Plugins are found relative to **your project**, never relative to White.js: npm packages (CommonJS or ESM-only, honouring `exports` and the `import`/`require` conditions), and relative or absolute paths. See [docs/plugins.md](docs/plugins.md).
+
+## Protocols and migrations
+
+White.js versions the *contracts between components* separately from the framework and from libraries: `meta@3.0` is neither `white-js@0.4.0` nor `white-auth@2.4.0`. One app can run libraries on different generations of a protocol side by side, learns about deprecations early, and moves to a new generation in a separate, reviewable, reversible step.
+
+| Document | For |
+| --- | --- |
+| [docs/protocols.md](docs/protocols.md) | versioning rules, manifests, statuses, how compatibility is decided, security |
+| [docs/migrations.md](docs/migrations.md) | `white migrate`: analysis, automatic and manual modes, safety guarantees, recovery |
+| [docs/library-authors.md](docs/library-authors.md) | declaring protocols in a library, supporting several generations, writing a migration |
+
+```text
+$ white doctor
+  Protocol Compatibility
+  META
+    meta@3.0      CURRENT
+    meta@2.0      DEPRECATED
+  Detected:
+    2 libraries use a legacy protocol.
+  Recommendations:
+    white-auth   → meta@3.0
+  Migration available:
+    1 automatic
+    0 manual
+  Status: WARNING
+
+$ white migrate meta@3.0 --analyze     # read-only plan with diffs
+$ white migrate meta@3.0               # asks, backs up, applies, verifies, or restores
+$ white migrate meta@3.0 --manual      # a step-by-step guide instead
+```
+
+Inside the app: `ctx.protocols` (read-only) exposes the registry and the compatibility report, and `ctx.protocols.for('white-auth').version('meta')` returns the generation a library uses, fixed for the life of the process.
+
 ## Project layout
 
 ```
 bin/white.js        CLI entry point (the "bin" field in package.json)
 src/
   index.js          public API
-  core/             app, config, errors, plugin and route loader, logger
+  core/             app, lifecycle, resources, config, errors, proxy, request id, route scanner, plugin resolver and loader, logger
+  protocols/        registry, manifests, compatibility engine, project scanner
+  migrations/       migration engine, ledger, journal and backups, diffs, authoring kit
+  doctor/           read-only project diagnosis
   http/             security, views, helpers, validation, built-in error page
   mesh/             service-to-service: signing, client, circuit breaker, auth, events, peers
-  cli/              command router, commands (run, install, plugin, routes, make, mesh, doctor), config editing
+  cli/              command router, commands (run, install, plugin, routes, make, mesh, doctor, migrate, protocol), config editing
   dev/              live reload
   utils/            cache, duration
   test.js           createTestClient ("white-js/test")

@@ -59,6 +59,7 @@ export function createAuth({ name, secretFor, skew, nonces, now = Date.now }) {
         }
         if (allow && !allow.has(result.from)) throw new ForbiddenError('This service may not use this route');
         req.service = { name: result.from };
+        req.app.locals.adoptRequestId?.(req, res); // the caller is known: its request id continues the trace
         next();
       } catch (err) {
         next(err);

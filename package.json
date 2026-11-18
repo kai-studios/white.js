@@ -1,6 +1,6 @@
 {
   "name": "white-js",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A thin, fast framework on top of Express, built for sites and services that talk to each other",
   "license": "ISC",
   "repository": {
@@ -29,7 +29,8 @@
   },
   "files": [
     "bin",
-    "src"
+    "src",
+    "docs"
   ],
   "engines": {
     "node": ">=20.12"
@@ -41,7 +42,8 @@
     "express-rate-limit": "^8.7.4",
     "helmet": "^8.0.0",
     "pino": "^10.4.0",
-    "pino-pretty": "^13.2.0"
+    "pino-pretty": "^13.2.0",
+    "semver": "^7.8.6"
   },
   "scripts": {
     "test": "node --test --test-timeout=20000 test/*.test.js"
